@@ -1,0 +1,118 @@
+import ServiceManagement
+import SwiftUI
+
+struct SettingsView: View {
+    @ObservedObject var store: UsageStore
+    @AppStorage(SettingsKey.icon) private var icon: MenuIcon = .devin
+    @AppStorage(SettingsKey.refreshInterval) private var interval: Int = RefreshInterval.standard.rawValue
+    @AppStorage(SettingsKey.showWeekly) private var showWeekly = false
+    @AppStorage(SettingsKey.showChart) private var showChart = true
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var launchError: String?
+
+    private let columns = Array(repeating: GridItem(.fixed(44), spacing: 8), count: 5)
+
+    var body: some View {
+        Form {
+            Section("Menu bar") {
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(MenuIcon.allCases) { option in
+                        Button {
+                            icon = option
+                        } label: {
+                            Group {
+                                if option == .none {
+                                    Text("None").font(.caption2)
+                                } else {
+                                    MenuIconView(icon: option)
+                                }
+                            }
+                            .frame(width: 40, height: 32)
+                            .background(RoundedRectangle(cornerRadius: 6)
+                                .fill(icon == option ? Color.devin.opacity(0.25) : Color.primary.opacity(0.05)))
+                            .overlay(RoundedRectangle(cornerRadius: 6)
+                                .stroke(icon == option ? Color.devin : .clear, lineWidth: 1.5))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(option.title)
+                    }
+                }
+                .padding(.vertical, 4)
+
+                Toggle("Show weekly usage", isOn: $showWeekly)
+                    .tint(.devin)
+                Text("Daily / weekly, e.g. 13% / 5%.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Dropdown") {
+                Toggle("Show usage chart", isOn: $showChart)
+                    .tint(.devin)
+                Text("Daily and weekly usage over time, with the pace of each stretch of use.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Section("Updates") {
+                Picker("Refresh every", selection: $interval) {
+                    ForEach(RefreshInterval.allCases) { option in
+                        Text(option.title).tag(option.rawValue)
+                    }
+                }
+                .onChange(of: interval) { store.restartPolling() }
+
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                    .tint(.devin)
+                    .onChange(of: launchAtLogin) { _, enabled in setLaunchAtLogin(enabled) }
+                if let launchError {
+                    Text(launchError).font(.caption).foregroundStyle(.red)
+                }
+            }
+
+            Section {
+                Text("Uses the Devin sign-in saved by Devin Desktop or the Devin CLI, read-only: it never changes or refreshes it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    if let versionText {
+                        Text(versionText)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    Spacer()
+                    Button("Quit Devin Usage") { NSApp.terminate(nil) }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 380)
+        .fixedSize()
+    }
+
+    /// `Version 1.0.0 (42)`, from the bundle's Info.plist; nil when running unbundled.
+    private var versionText: String? {
+        guard let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String else {
+            return nil
+        }
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+        return build.map { "Version \(version) (\($0))" } ?? "Version \(version)"
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            launchError = nil
+        } catch {
+            launchError = error.localizedDescription
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+}
